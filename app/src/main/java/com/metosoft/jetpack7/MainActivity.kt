@@ -13,8 +13,11 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -26,7 +29,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.metosoft.jetpack7.ui.theme.Jetpack7Theme
 import kotlinx.coroutines.CoroutineScope
@@ -40,8 +42,7 @@ import java.util.*
 class MainActivity : ComponentActivity() {
     private val bluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
     private val devices = mutableStateListOf<BluetoothDevice>()
-    private val LOCATION_PERMISSION_REQUEST_CODE = 1
-    private val BLUETOOTH_CONNECT_PERMISSION_REQUEST_CODE = 2
+
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -53,32 +54,69 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    lateinit var requestPermissionLauncher: ActivityResultLauncher<Array<String>>
+
     @RequiresApi(Build.VERSION_CODES.S)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
         registerReceiver(receiver, filter)
 
+        // Register permission request callback
+        requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+            when {
+                permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true -> {
+                    // Location permission granted, start discovery
+                    startDiscovery()
+                }
+                permissions[Manifest.permission.BLUETOOTH_CONNECT] == true -> {
+                    // Bluetooth connect permission granted, refresh device list
+                    setContent {
+                        Jetpack7Theme {
+                            BluetoothDeviceList(
+                                devices = devices,
+                                startDiscovery = { startDiscovery() },
+                                connectToDevice = { connectToDevice(it) }
+                            )
+                        }
+                    }
+                }
+                permissions[Manifest.permission.ACCESS_FINE_LOCATION] == false -> {
+                    // Location permission denied, notify user
+                    Toast.makeText(this, "Konum izni gerekli. Lütfen izin verin.", Toast.LENGTH_SHORT).show()
+                }
+                permissions[Manifest.permission.BLUETOOTH_CONNECT] == false -> {
+                    // Bluetooth connect permission denied, notify user
+                    Toast.makeText(this, "Bluetooth bağlantı izni gerekli. Lütfen izin verin.", Toast.LENGTH_SHORT).show()
+                }
+                else -> {
+                    // Any other permissions not granted, handle accordingly
+                    Toast.makeText(this, "Gerekli izinler verilmedi.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                LOCATION_PERMISSION_REQUEST_CODE)
+            requestPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION))
         }
 
         setContent {
             Jetpack7Theme {
-                BluetoothDeviceList(devices = devices, startDiscovery = { startDiscovery() }, connectToDevice = { connectToDevice(it) })
+                BluetoothDeviceList(
+                    devices = devices,
+                    startDiscovery = { startDiscovery() },
+                    connectToDevice = { connectToDevice(it) }
+                )
             }
         }
     }
-
     private fun startDiscovery() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
             == PackageManager.PERMISSION_GRANTED) {
             bluetoothAdapter?.startDiscovery()
         } else {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                LOCATION_PERMISSION_REQUEST_CODE)
+            requestPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION))
         }
     }
 
@@ -86,8 +124,7 @@ class MainActivity : ComponentActivity() {
     private fun connectToDevice(device: BluetoothDevice) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
             != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
-                BLUETOOTH_CONNECT_PERMISSION_REQUEST_CODE)
+            requestPermissionLauncher.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT))
             return
         }
 
@@ -101,10 +138,21 @@ class MainActivity : ComponentActivity() {
                 val outputStream: OutputStream = socket.outputStream
                 val inputStream: InputStream = socket.inputStream
 
-                // Veri gönderme ve alma işlemlerini burada yapabilirsin
+                // Example data sending
+                val message = "Hello Bluetooth!"
+                outputStream.write(message.toByteArray())
+
+                // Data receiving
+                val buffer = ByteArray(1024)
+                var bytes: Int
+                while (true) {
+                    bytes = inputStream.read(buffer)
+                    val receivedMessage = String(buffer, 0, bytes)
+                    println("Received data: $receivedMessage")
+                }
 
             } catch (e: IOException) {
-                // Bağlantı hatası
+                e.printStackTrace() // Connection error
             }
         }
     }
@@ -112,33 +160,6 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(receiver)
-    }
-
-    @Deprecated("This method has been deprecated in favor of using the Activity Result API\n      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt\n      contracts for common intents available in\n      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for\n      testing, and allow receiving results in separate, testable classes independent from your\n      activity. Use\n      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)} passing\n      in a {@link RequestMultiplePermissions} object for the {@link ActivityResultContract} and\n      handling the result in the {@link ActivityResultCallback#onActivityResult(Object) callback}.")
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        when (requestCode) {
-            LOCATION_PERMISSION_REQUEST_CODE -> {
-                if ((grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)) {
-                    // İzin verildi, taramayı başlat
-                    startDiscovery()
-                } else {
-                    // İzin reddedildi
-                    // Uygulama bu durumda nasıl davranacaksa, onu burada yap
-                }
-                return
-            }
-            BLUETOOTH_CONNECT_PERMISSION_REQUEST_CODE -> {
-                if ((grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)) {
-                    // İzin verildi, cihaza bağlanmayı başlat
-                    // Not: connectToDevice metodunu tekrar çağırmak uygun olabilir
-                } else {
-                    // İzin reddedildi
-                    // Uygulama bu durumda nasıl davranacaksa, onu burada yap
-                }
-                return
-            }
-        }
     }
 }
 
@@ -154,8 +175,7 @@ fun BluetoothCheckAndEnable() {
         if (!bluetoothAdapter.isEnabled) {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT)
                 != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(context as ComponentActivity, arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
-                    2)
+                (context as? MainActivity)?.requestPermissionLauncher?.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT))
             } else {
                 val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
                 context.startActivity(enableBtIntent)
@@ -168,8 +188,11 @@ fun BluetoothCheckAndEnable() {
 
 @RequiresApi(Build.VERSION_CODES.S)
 @Composable
-
-fun BluetoothDeviceList(devices: List<BluetoothDevice>, startDiscovery: () -> Unit, connectToDevice: (BluetoothDevice) -> Unit) {
+fun BluetoothDeviceList(
+    devices: List<BluetoothDevice>,
+    startDiscovery: () -> Unit,
+    connectToDevice: (BluetoothDevice) -> Unit
+) {
     val context = LocalContext.current
 
     Column {
@@ -197,6 +220,10 @@ fun BluetoothDeviceList(devices: List<BluetoothDevice>, startDiscovery: () -> Un
 @Composable
 fun DefaultPreview() {
     Jetpack7Theme {
-        BluetoothDeviceList(devices = emptyList(), startDiscovery = {}, connectToDevice = {})
+        BluetoothDeviceList(
+            devices = emptyList(),
+            startDiscovery = {},
+            connectToDevice = {}
+        )
     }
 }
