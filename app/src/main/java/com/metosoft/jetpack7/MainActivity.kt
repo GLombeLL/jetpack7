@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
                 val inputStream: InputStream = socket.inputStream
 
                 // Veri gönderme ve alma işlemlerini burada yapabilirsin
-                
+
             } catch (e: IOException) {
                 // Bağlantı hatası
             }
